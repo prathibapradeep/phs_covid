@@ -3,88 +3,46 @@ title: "PHS_Covid Analysis"
 output: html_notebook
 ---
 
-### **Load the datasets**
+### **Load the library**
 
-```{r}
-library(tidyverse)
-library(janitor)
+```{r message=FALSE, warning=FALSE, include=FALSE}
 library(here)
 library(ggplot2)
-library(lubridate)
 library(plotly)
 library(fable)
+library(fabletools)
+library(forecast)
 library(tsibble)
 library(tsibbledata)
+library(RColorBrewer)
+library(leaflet)
+library(tmap)
 ```
 
-```{r}
-## ---------------------------------------------------------------------------
-#Load all the datafiles into dataset using loop
-## ---------------------------------------------------------------------------
+### **Load the dataset**
 
-## List the files.
-
-setwd("../raw_data")
-files <- list.files(pattern=".csv")
-## read data using loop
-for (f in files) {
-  file_name <- str_to_lower(str_replace(f,".csv",""))
-  assign(paste(file_name),read_csv(f))
-}
-```
-
-```{r}
-# Function to create a theme for the plot-----------------------------------------
-color_theme <- function() {
-  theme(
-    plot.background = element_rect(fill = "white"),
-    plot.title = element_text(size = rel(2)),
-    plot.title.position = "plot",
-    panel.border = element_rect(colour = "blue", fill = NA, linetype = 1),
-    panel.background = element_rect(fill = "white"),
-    panel.grid = element_line(colour = "grey85", linetype = 1, size = 0.5),
-    axis.text = element_text(colour = "blue", face = "italic", size = 12),
-    axis.title.y = element_text(colour = "#1B732B", size = 10, angle = 90),
-    axis.title.x = element_text(colour = "#1B732B", size = 10),
-    legend.box.background = element_rect(),
-    legend.box.margin = margin(6, 6, 6, 6)
-  )
-}
-```
-
-## **1) Analyse the Daily trend on positive cases**
-
-```{r}
-trend_hb_daily <- trend_hb_20211008 %>% 
-  clean_names()
-```
-
-```{r}
-#Convert the date to date format
-trend_hb_daily <- trend_hb_daily %>% 
-  mutate(date = as_date(ymd(date))) %>% 
-  filter (year(date) == 2021)
-  #filter(date >="2021-04-01") 
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#Load the data------------------------------------------------------------------
+source(here("cleaning_scripts/phs_covid_cleaning.R"))
 ```
 
 ### ***Plot1(a): Trend on people who tested positive (For all the data).***
 
 ```{r}
 #Plot to visualise trend on positive cases.
-x <- trend_hb_daily %>% 
+plot_positive_case <- trend_hb_daily %>% 
   filter (hb_name == "Scotland") %>% 
   ggplot()+
   aes(x = date, y = daily_positive)+
   geom_line()+
-  #scale_x_date(breaks = "1 month")+
   scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("Trend on Positive cases") +
-  xlab("Year") +
+  ggtitle("People tested positive") +
+  xlab("Date (Months)") +
   ylab("No of Positive Cases") +
-  color_theme()
+  color_theme() 
 
-ggplotly(x)
+ggplotly(plot_positive_case)
 
 
 ```
@@ -92,7 +50,7 @@ ggplotly(x)
 ### ***Plot1(b): Trend on people who tested positive(For Past 6 months).***
 
 ```{r}
-x <- trend_hb_daily %>% 
+plot_positive_case <- trend_hb_daily %>% 
   filter(date >="2021-04-01") %>% 
   filter (hb_name == "Scotland") %>% 
   ggplot()+
@@ -102,31 +60,108 @@ x <- trend_hb_daily %>%
   scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
   ggtitle("People tested Positive") +
-  xlab("Year") +
+  xlab("Date (Months)") +
   ylab("No of Positive Cases") +
   color_theme()
 
-ggplotly(x)
+ggplotly(plot_positive_case)
 ```
+
+### ***Plot1(c): Total Positive Case by neighborhood (Based on NHS Health board).***
+
+
+```{r}
+
+trend_hb_daily_tot <- trend_hb_daily %>% 
+  filter(hb_name != "Scotland") %>% 
+  group_by(hb) %>% 
+  summarise(total_count = sum(daily_positive))
+  
+
+map_data <- zones_nhs_hb %>% 
+    inner_join(trend_hb_daily_tot, by = c("code" = "hb"))
+  
+map_palette <- colorNumeric("viridis", domain = range(map_data$total_count))
+
+map_data <- map_data %>% 
+  arrange(total_count)
+
+ map_data <- map_data %>% 
+    mutate(colour = map_palette(total_count))
+ 
+  map_data %>%
+    leaflet() %>%
+    addPolygons(
+      popup = ~ str_c(name, "<br>",  "Positive Case = ", total_count, sep = ""),
+      color = ~colour
+    ) %>%
+    addLegend(
+      position = "bottomright",
+      colors = ~colour,
+      labels = ~name
+    )
+
+```
+
+
+### ***Plot1(c): Total Positive Case by neighborhood (Based on Local Authority).***
+
+
+```{r}
+trend_la_daily_tot <- trend_la_daily %>% 
+  group_by(ca) %>% 
+  summarise(total_count = sum(daily_positive))
+
+map_data <- zones_la %>% 
+    inner_join(trend_la_daily_tot, by = c("code" = "ca"))
+  
+map_palette <- colorNumeric("viridis", domain = range(map_data$total_count))
+
+map_data <- map_data %>% 
+  arrange(total_count)
+
+ map_data <- map_data %>% 
+    mutate(colour = map_palette(total_count))
+ 
+map_data %>%
+    leaflet() %>%
+    addPolygons(
+      popup = ~ str_c(name, "<br>",  "Positive Case = ", total_count, sep = ""),
+      color = ~colour
+    ) %>%
+    addLegend(
+      position = "bottomright",
+      colors = ~colour,
+      labels = ~name
+    )
+```
+
+
+
 
 ## **EXTRA 1: Forecast on Positive cases:**
 
 ```{r}
+# The data is chosen from Jun as it is the beginning of wave 1 
 trend <- trend_hb_daily %>% 
   filter (hb_name == "Scotland") %>% 
   filter(date >="2021-06-01") %>% 
   select(date, daily_positive)
 
+# Data is converted into timeseries for forecasting
 trend <- as_tsibble(trend, index = date)
 
+# Different forecasting methods are used 
 fit <- trend %>%
   model(
     snaive = SNAIVE(daily_positive),
     mean_model = MEAN(daily_positive),
     arima = ARIMA(daily_positive)
   )
+
+# Forecast for 2 weeks (14 days)
 forecast_14days <- fit %>%
-  fabletools::forecast(h = 14)
+  forecast(h = 14)
 forecast_14days
 ```
 
@@ -142,13 +177,11 @@ forecast_14days %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 ```
 
+**EXTRA: Forecast for one month:**
 ```{r}
 forecast_1month <- fit %>%
   fabletools::forecast(h = "1 month")
-forecast_1month 
-```
 
-```{r}
 forecast_1month %>%
  #filter(.model == "snaive") %>%
  autoplot(trend, level = NULL) +
@@ -160,10 +193,12 @@ forecast_1month %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 ```
-```{r}
-# check our available years so we know where to put the split in the data
 
-# Now set our training data from 1992 to 2006
+## **Check if the forecast data fits our existing data**
+
+```{r}
+
+# Set the training data from Jan to Aug
 train <- trend %>%
   filter_index("2021-01-01" ~ "2021-08-31")
 
@@ -176,28 +211,27 @@ fit_train <- train %>%
   )
 
 forecast_test <- fit_train %>% 
-  fabletools::forecast(h = 30)
+  forecast(h = 30)
 
-```
-
-```{r}
 forecast_test %>%
   autoplot(train, level = NULL) +
     autolayer(filter_index(trend, "2021-09-01" ~.), color = "black") +
     ggtitle("Forecasts for positive cases") +
     xlab("Date") + ylab("Daily Positive") +
     guides(colour=guide_legend(title="Forecast"))
+
 ```
 
+## **Check for the accuracy of the model**
 
+The minimum RMSE is chosen.
 ```{r}
-accuracy_model <- fabletools::accuracy(forecast_test, trend)
+accuracy_model <- accuracy(forecast_test, trend)
 
 accuracy_model %>% 
   select(-.type) %>%
   arrange(RMSE)
 ```
-
 
 ## **2 Analyse the trend on Hospitalisations:**
 
@@ -209,7 +243,6 @@ plot_hosp <- trend_hb_daily %>%
   ggplot()+
   aes(x = date, y = hospital_admissions)+
   geom_col()+
-  #scale_x_date(breaks = "1 month")+
   scale_x_date(breaks = "1 week", date_labels = "%d - %b" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
   ggtitle("Trend on Hospitalisations") +
@@ -242,12 +275,10 @@ fit <- trend_hosp %>%
     arima = ARIMA(hospital_admissions),
     ets = ETS(log(hospital_admissions) ~ error("M") + trend("Ad") + season("A"))
   )
-forecast_14days <- fit %>%
-  fabletools::forecast(h = 14)
-forecast_14days
-```
 
-```{r}
+forecast_14days <- fit %>%
+  forecast(h = 14)
+
 forecast_14days %>%
 # filter(.model == "snaive") %>%
  autoplot(trend_hosp, level = NULL) +
@@ -258,18 +289,13 @@ forecast_14days %>%
   scale_x_date(breaks = "1 month", date_labels = "%B" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
-
-
-
 ```
+
 
 ```{r}
 forecast_1month <- fit %>%
   fabletools::forecast(h = "1 month")
-forecast_1month 
-```
 
-```{r}
 forecast_1month %>%
  filter(.model %in% c("snaive","arima")) %>%
  autoplot(trend_hosp, level = NULL) +
@@ -281,6 +307,7 @@ forecast_1month %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
 
 ```
+
 ```{r}
 #  set the training data
 train <- trend_hosp %>%
@@ -296,11 +323,8 @@ fit_train <- train %>%
   )
 
 forecast_test <- fit_train %>% 
-  fabletools::forecast(h = 35)
+  forecast(h = 35)
 
-```
-
-```{r}
 forecast_test %>%
   filter(.model %in% c("arima","snaive")) %>%
   autoplot(train ) +
@@ -310,49 +334,28 @@ forecast_test %>%
     xlab("Date") + 
     ylab("No of Patients admitted") +
     guides(colour=guide_legend(title="Forecast"))
+
 ```
 
 
+
 ```{r}
-accuracy_model <- fabletools::accuracy(forecast_test, trend_hosp)
+accuracy_model <- accuracy(forecast_test, trend_hosp)
 
 accuracy_model %>% 
   select(-.type) %>%
   arrange(RMSE)
 ```
 
-Prepare the data
-```{r}
-daily_vacc_hb <- daily_vacc_hb_20211009 %>% 
-  clean_names()
-```
-
-```{r}
- #Convert the date to date format
-daily_vacc_hb <- daily_vacc_hb %>% 
-  mutate(date = as_date(ymd(date)))
-  #filter (year(date) == 2021)
-```
-```{r}
-daily_vacc_hb_plot <- daily_vacc_hb %>% 
-  filter(hb_name == "Scotland") %>% 
-  filter(sex =="Total") %>% 
-  filter(age_group == "All vaccinations") %>% 
-  filter(number_vaccinated!=0) 
-  #select(date,sex, age_group, number_vaccinated)
-```
-
-
 ### ***Plot3(a): Trend on people who tested positive (For all the data).***
 
 ```{r}
-#Plot to visualise trend on positive cases.
+#Plot to visualize trend on positive cases.
 plot_vaccine <- daily_vacc_hb_plot %>% 
   ggplot()+
   aes(x = date, y = number_vaccinated)+
   geom_line(aes(color = dose))+
   facet_wrap(~dose)+
-  #scale_x_date(breaks = "1 month")+
   scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
   ggtitle("Trend on Vaccination") +
