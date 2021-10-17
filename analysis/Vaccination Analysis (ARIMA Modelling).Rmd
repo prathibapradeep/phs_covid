@@ -1,0 +1,313 @@
+---
+title: "PHS_COVID Vaccination Prediction Model Using ARIMA"
+output: html_notebook
+---
+
+## **3 Analyse the trend on Vaccinations:**
+
+```{r}
+
+trend_vacc_hb <- daily_vacc_hb %>% 
+  filter(hb_name == "Scotland") %>% 
+  filter(sex =="Total") %>% 
+  filter(age_group == "All vaccinations") %>% 
+  filter(cumulative_number_vaccinated!=0) 
+
+```
+
+### ***Plot3(a): Trend on Vaccination***
+
+```{r}
+#Plot to visualize trend on vaccination.
+plot_vaccine <- trend_vacc_hb %>% 
+  ggplot()+
+  aes(x = date, y = number_vaccinated)+
+  geom_line(aes(color = dose))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Trend on Vaccination") +
+  xlab("Year") +
+  ylab("No of Positive Cases") +
+  color_theme()+
+  scale_colour_manual(values = c("#f1a340", "#5ab4ac"))
+
+ggplotly(plot_vaccine)
+```
+
+```{r}
+#Plot to visualise cumulative vaccination trend.
+plot_vaccine_cumm <- trend_vacc_hb %>% 
+  ggplot()+
+  aes(x = date, y = cumulative_number_vaccinated)+
+  geom_line(aes(color = dose))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Cummulative Trend on Vaccination") +
+  xlab("Year") +
+  ylab("No of People Vaccinated") +
+  color_theme()+
+  scale_colour_manual(values = c("#f1a340", "#5ab4ac"))+
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))
+
+ggplotly(plot_vaccine_cumm)
+
+```
+## 2 (b) Forecast on Vaccination:**
+
+Data Preparation
+```{r}
+trend_vacc_hb <- trend_vacc_hb %>% 
+  filter (dose == "Dose 2") %>% 
+  select(date,cumulative_number_vaccinated)
+
+# Convert it to zoo type
+daily_vacc_hb_zoo <- zoo(trend_vacc_hb$cumulative_number_vaccinated, 
+           order.by=as.Date(trend_vacc_hb$date, format='%m/%d/%Y'))
+
+# Convert it into a time series
+daily_vacc_hb_timeseries <-timeSeries::as.timeSeries(daily_vacc_hb_zoo)
+
+#Check if its a time series
+is.ts(ts(daily_vacc_hb_timeseries))
+```
+
+ARIMA MODEL
+
+Step 1 : Visualise the time series
+
+```{r}
+original_series<-autoplot(daily_vacc_hb_timeseries, colour = '#5ab4ac')+
+  xlab("Month") + 
+  ylab("Number of People vaccinated")+
+  #scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Trend on Vaccination") +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()
+
+ggplotly(original_series)
+```
+
+
+Step 2 : Identification of model : (Finding d:)
+
+Identify whether the time series is stationary / non stationary
+we can use ADF Augmented Dickey-Fuller test 
+
+```{r}
+adf_test <- adf.test(daily_vacc_hb_timeseries)
+```
+The time series is not stationary since we have a high p-value. So we apply difference
+
+```{r}
+first_diff_ts<- diff(daily_vacc_hb_timeseries)
+adf_test1 <- adf.test(na.omit(first_diff_ts))
+second_diff_ts<- diff(first_diff_ts)
+adf_test2 <- adf.test(na.omit(second_diff_ts))
+
+adf_test1
+adf_test2
+```
+Create a dataframe to compare
+
+```{r}
+adf_data <- data.frame(Data = c("Original", "First-Ordered", "Second Ordered"),
+                       Dickey_Fuller = c(adf_test$statistic, adf_test1$statistic, adf_test2$statistic),
+                       p_value = c(adf_test$p.value,adf_test1$p.value,adf_test2$p.value))
+adf_data
+```
+
+Initially the pvalue is high which indicates that the Time Series is not stationary. So we apply difference 2 times.
+After the second difference, the p-value < significance level (0.05)  So we can conclude that the difference data are stationary.
+So difference (d = 2)
+
+# Other method to confirm
+```{r}
+ndiffs(daily_vacc_hb_timeseries)
+```
+Let's plot the First Order and Second Order Difference Series
+
+Order of first difference
+```{r}
+
+first_order<- autoplot(first_diff_ts, ts.colour = '#5ab4ac') +
+  xlab("Month") + 
+  ylab("VACCINATED")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("First-Order Difference Series") +
+  color_theme()
+
+ggplotly(first_order)
+```
+
+Order of Second difference
+```{r}
+
+second_order<- autoplot(second_diff_ts, ts.colour = '#5ab4ac') +
+  xlab("Month") + 
+  ylab("VACCINATED")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Second-Order Difference Series") +
+  color_theme()
+
+ggplotly(second_order)
+```
+
+3. Estimate the parameters (Finding p and q)
+
+For our model ARIMA (p,d,q), we found d = 2, the next step is to get the values of p and q, the order of AR and MA part. 
+Plot ACF and PACF charts to identify q and p respectively.
+
+```{r}
+par(mfrow=c(2,2))
+  acf1(first_diff_ts, gg=TRUE, col=2:7, lwd=4)
+  acf1(second_diff_ts, gg=TRUE, col=2:7, lwd=4)
+  acf1(first_diff_ts, pacf=TRUE, gg=TRUE, col=2:7, lwd=4)
+  acf1(second_diff_ts, pacf=TRUE, gg=TRUE, col=2:7, lwd=4)
+```
+
+We see that the sample ACF cuts off after lag 1 and the sample PACF cuts off after lag 1. 
+
+So we propose three ARMA models for the differenced data: ARMA(p,q)
+ARMA(0,1), ARMA(1,0) and ARMA(1,1). 
+
+That is, for the original time series, we propose three ARIMA models,ARIMA(p,d,q)
+ARIMA(0,2,1), ARIMA(1,2,0) and ARMA(1,2,1).
+
+4. Build the ARIMA model 
+
+
+4 (a) Manual method:
+
+```{r}
+arima_fit1 = Arima(daily_vacc_hb_timeseries, order = c(1,2,0))
+arima_fit2 = Arima(daily_vacc_hb_timeseries, order = c(0,2,1))
+arima_fit3 = Arima(daily_vacc_hb_timeseries, order = c(1,2,1))
+arima_fit4 = Arima(daily_vacc_hb_timeseries, order = c(3,2,2))
+```
+
+```{r}
+summary(arima_fit1)
+summary(arima_fit2)
+summary(arima_fit3)
+summary(arima_fit4)
+```
+
+4 (b) Automated method:
+
+```{r}
+auto_arima_fit <- auto.arima(daily_vacc_hb_timeseries,
+                  seasonal=FALSE
+                  )
+summary(auto_arima_fit)
+
+autoplot(auto_arima_fit)
+```
+
+5. Model Selection Criteria :
+
+We use the following measure to select the model
+
+Akaike Information Criterion (AIC), Root Mean Squared Error (RMSE), and Mean Absolute Percentage Error (MAPE) 
+
+Based on that, An ARIMA(2, 2, 5) model seems best.
+
+6. Check for Residuals
+
+Let's plot the diagnostics with the results to make sure the normality and correlation assumptions for the model hold. 
+If the residuals look like white noise, proceed with forecast and prediction, otherwise repeat the model building.
+
+```{r}
+ggtsdiag(auto.arima(daily_vacc_hb_timeseries))
+```
+Other method:
+```{r}
+checkresiduals(auto_arima_fit)
+```
+
+The ACF plot of the residuals from the ARIMA(2,2,5) model shows that all auto correlations are within the threshold limits, indicating that the residuals are behaving like white noise. A portmanteau test returns a smaller p-value, also suggesting that the residuals are white noise.
+
+7. Fitting the ARIMA model with the existing data
+
+```{r}
+#plotting the series along with the fitted values
+
+arima_fit <- ts(daily_vacc_hb_timeseries) - resid(auto_arima_fit)
+autoplot(ts(daily_vacc_hb_timeseries), colour = '#5ab4ac') +
+autolayer(arima_fit) +
+  xlab("Month") + 
+  ylab("Number of People vaccinated")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Fitting the ARIMA model with existing data") +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()
+```
+
+8 Forecast/ Predict using the model
+
+#Plotting the Vaccination series plus the forecast and 95% prediction intervals
+
+```{r}
+#forecast using autoplot
+forecast_model <- forecast(arima_fit,level = c(80, 95), h = 30) 
+
+annotation <- data.frame(
+   x = c(50,305),
+   y = c(1000000,3000000),
+   label = c("PAST", "FUTURE")
+)
+
+forecast_model %>% 
+autoplot(colour ='#f1a340') +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Forecast for 1 month") +
+  xlab("Year") +
+  ylab("No of people vaccinated") +
+  scale_y_continuous(labels = scales::comma)+
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()  +
+  geom_text(data=annotation, 
+            aes( x=x, y=y, label=label),                  
+           color="red", 
+           size=4 )+
+  geom_vline(xintercept =285, linetype = 2)
+```
+
+  
+EXTRA
+
+Forecast the Manual ARIMA model
+
+```{r}
+# Forecast the manual models
+
+future = forecast(arima_fit1, h = 30)
+future2 = forecast(arima_fit2, h = 30)
+future3 = forecast(arima_fit3, h = 30)
+future4 = forecast(arima_fit4, h = 30)
+
+#Plot the forecasted manual models
+
+par(mfrow = c(2,2))
+plot(future)
+plot(future2)
+plot(future3)
+plot(future4)
+```
+# Using Predict with (train & test)
+
+```{r}
+## partition into train and test
+train_series=daily_vacc_hb_timeseries[1:140]
+test_series=daily_vacc_hb_timeseries[141:150]
+
+## make arima models
+arimaModel_1=arima(train_series, order=c(0,2,1))
+arimaModel_2=arima(train_series, order=c(1,2,1))
+arimaModel_3=arima(train_series, order=c(1,2,0))
+
+## look at the parameters
+print(arimaModel_1);
+print(arimaModel_2);
+print(arimaModel_3)
+```

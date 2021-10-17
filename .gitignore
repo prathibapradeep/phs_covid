@@ -2,5 +2,7 @@
 .Rhistory
 .RData
 .DStore
-.csv
 raw_data/daily_vacc_la_20211009.csv
+raw_data/archive/daily_vacc_age_sex_20211009.csv
+raw_data/archive/covid19infectionsurveydatasets20211008scotland.xlsx
+*.csv
