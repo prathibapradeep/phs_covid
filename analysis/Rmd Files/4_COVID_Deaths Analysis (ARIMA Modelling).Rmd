@@ -1,0 +1,302 @@
+---
+title: "Forecast on Deaths (ARIMA Modelling)"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+**Data Preparation**
+
+```{r}
+#For forecasting, we chose the latest data
+trend_death_hb <- trend_hb_daily %>% 
+  filter (hb_name == "Scotland") %>% 
+  filter(date >="2021-06-01") %>% 
+  filter(!(is.na(daily_deaths))) %>% 
+  select(date, daily_deaths)
+
+# Convert it into a time series
+daily_death_hb_zoo <- zoo(trend_death_hb$daily_deaths, 
+           order.by=as.Date(trend_death_hb$date, format='%m/%d/%Y'))
+
+# Convert it into a time series
+daily_death_hb_timeseries <-  timeSeries::as.timeSeries(daily_death_hb_zoo)
+```
+
+## Step 1 : Visualize the time series
+
+```{r}
+original_series_death<-autoplot(daily_death_hb_timeseries, ts.colour = '#5ab4ac')+
+  xlab("Month") + 
+  ylab("Patient died")+
+  #scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Trend on Deaths") +
+  color_theme()
+
+ggplotly(original_series_death)
+```
+
+## Step 2 : Identification of model : (Finding d:)
+
+Identify whether the time series is stationary / non stationary we can use ADF Augmented Dickey-Fuller test
+
+```{r}
+adf_test_death <- adf.test(daily_death_hb_timeseries)
+adf_test_death
+```
+
+The time series is not stationary since we have a high p-value (p-value must be \< 0.05).
+So we apply difference
+
+```{r}
+first_diff_death<- diff(daily_death_hb_timeseries)
+adf_test1_death <- adf.test(na.omit(first_diff_death))
+adf_test1_death
+```
+
+Create a dataframe to compare
+
+```{r}
+adf_data_death <- data.frame(Data = c("Original", "First-Ordered"),
+                       Dickey_Fuller = c(adf_test_death$statistic, adf_test1_death$statistic),
+                       p_value = c(adf_test_death$p.value,adf_test1_death$p.value))
+adf_data_death
+```
+
+Initially the p-value is high which indicates that the Time Series is not stationary.
+So we apply difference 1 time.
+After the first difference, the p-value \< significance level (0.05) So we can conclude that the difference data are stationary.
+So difference (d = 1)
+
+Other method:
+
+```{r}
+ndiffs(daily_death_hb_timeseries)
+```
+
+Let's plot the First Order Difference Series
+
+Order of first difference
+
+```{r}
+
+first_diff_death<- diff(daily_death_hb_timeseries)
+p<- autoplot(first_diff_death, ts.colour = '#5ab4ac') +
+  xlab("Month") + 
+  ylab("DEATH")+
+ # scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("First-Order Difference Series") +
+  color_theme()
+
+ggplotly(p)
+```
+
+## Step 3 Estimate the parameters (Finding p and q)
+
+For our model ARIMA (p,d,q), we found d = 1, the next step is to get the values of p and q, the order of AR and MA part.
+Plot ACF and PACF charts to identify q and p respectively.
+
+```{r}
+par(mfrow=c(2,2))
+acf_death  <- acf1(first_diff_death, col=2:7, lwd=4)
+pacf_death <- acf1(first_diff_death,  pacf = TRUE, col=2:7, lwd=4)
+```
+
+The ACF and PACF plots tapers to zeo at one point.
+So it follows an ARMA model
+
+The PACF non-zero value at lag 3 So the data may follow an AR(3) model
+
+The ACF non - zero value at lag 2 So it can be MA (2)
+
+So we propose three ARMA models for the differenced data: ARMA(p,q) ARMA(3,2), ARMA(3,0) and ARMA(0,2).
+
+That is, for the original time series, we propose three ARIMA models,ARIMA(p,d,q) ARIMA(3,1,2), ARIMA(3,1,0) and ARMA(0,1,2).
+
+## Step 4 Build the ARIMA model
+
+### Manual ARIMA
+
+```{r}
+arima_fit_dth_1 = Arima(daily_death_hb_timeseries, order = c(3,1,2))
+arima_fit_dth_2 = Arima(daily_death_hb_timeseries, order = c(3,1,0))
+arima_fit_dth_3 = Arima(daily_death_hb_timeseries, order = c(0,1,2))
+```
+
+```{r}
+summary(arima_fit_dth_1)
+summary(arima_fit_dth_2)
+summary(arima_fit_dth_3)
+```
+
+Another way of checking AIC
+
+```{r}
+texreg::screenreg(list(arima_fit_dth_1, arima_fit_dth_2, arima_fit_dth_3),
+                custom.model.names =c("ARIMA(3,1,2)","ARIMA(3,1,0)","ARIMA(0,1,2)"),
+                center = TRUE,
+                table = FALSE)
+```
+
+Based on this, ARIMA model (3,1,2) seems best.
+We can verify the same using automated method
+
+### Automated ARIMA
+
+```{r}
+auto_arima_fit_death <- auto.arima(lag(daily_death_hb_timeseries),
+                  seasonal=FALSE,
+                  stepwise=FALSE,
+                  approximation=FALSE,
+                  trace = TRUE
+                  )
+auto_arima_fit_death
+```
+
+However Automated ARIMA also confirms that the ARIMA(2,1,3) seems good based on AIC
+
+```{r}
+coef_dth<-lmtest::coeftest(auto_arima_fit_death)
+coef_dth
+```
+
+**Model Selection Criteria :**
+
+ARIMA models with minimum AIC, RMSE and MAPE criteria were chosen as the best models.
+Based on Akaike Information Criterion (AIC) above, an ARIMA(2, 1, 3) model seems best.
+
+## Step 5 Check for Diagnostics
+
+Let's plot the diagnostics with the results to make sure the normality and correlation assumptions for the model hold.
+If the residuals look like white noise, proceed with forecast and prediction, otherwise repeat the model building.
+
+```{r}
+res_dth <-checkresiduals(auto_arima_fit_death, theme = color_theme())
+res_dth
+```
+
+The ACF plot of the residuals from the ARIMA(2,1,3) model shows that all auto correlations are within the threshold limits except 1, But portmanteau test (Ljung-Box test) shows a higher p-value which means the values are indpendent.
+i.e We fail to reject the null hypothesis
+
+Fitting the ARIMA model with the existing data
+
+Let's plot the actuals against the fitted values
+
+**Convert model and time series to dataframe for plotting**
+
+```{r}
+daily_death_hb_timeseries_data <- fortify(daily_death_hb_timeseries) %>% 
+  clean_names() %>% 
+  remove_rownames %>% 
+  rename (date = index,
+          death = data)%>% 
+  mutate(index = seq(1:nrow(daily_death_hb_timeseries)))
+  
+arima_fit_dth_resid <- ts(daily_death_hb_timeseries[1:nrow(daily_death_hb_timeseries)]) - resid(auto_arima_fit_death)
+
+arima_fit_dth_data <- fortify(arima_fit_dth_resid) %>% 
+  clean_names() %>% 
+  mutate(data = round(data,2))%>% 
+  mutate (data = ifelse(data < 0,0,data))
+
+fit_existing_dth_data <- daily_death_hb_timeseries_data %>% 
+  inner_join(arima_fit_dth_data, by = c("index"))
+
+
+```
+
+**Plotting the series along with the fitted values**
+
+```{r}
+
+fit_existing_dth_plot <- fit_existing_dth_data %>% 
+   mutate (data = ifelse(data < 0,0,data)) %>% 
+  mutate(date = as.Date(date)) %>% 
+  ggplot()+
+  aes(x=date, y = death)+
+  geom_line(color ="#5ab4ac")+
+  geom_line(aes(x= date, y = data), colour = "red" )+
+  xlab("Month") + 
+  ylab("Deaths reported")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  ggtitle("Fitting the ARIMA model with existing data") +
+  color_theme()
+
+ggplotly(fit_existing_dth_plot)
+
+```
+
+## Step 6 Forecast using the model
+
+**Data Preparation :**
+
+```{r}
+forecast_dth_model <- forecast(auto_arima_fit_death,level = c(80, 95), h = 30) 
+
+#Convert the model to dataframe for plotting
+
+# Negative values of the CI interval are considered as 0
+
+forecast_dth_model_data <- fortify(forecast_dth_model) %>% 
+  clean_names() %>% 
+  mutate(data = round(data,2),
+         fitted= round(fitted,2))  %>% 
+  mutate (lo_80 = ifelse(lo_80 < 0,0,lo_80),
+          lo_95 = ifelse(lo_95 < 0,0,lo_95)
+          )
+
+forecast_start_date <- as.Date(max(daily_death_hb_timeseries_data$date)+1)
+forecast_end_date <- as.Date(forecast_start_date+29)
+
+forecast_dth_data <- forecast_dth_model_data %>% 
+  filter(!(is.na(point_forecast))) %>% 
+  mutate(date = seq(forecast_start_date,forecast_end_date, by =1)) %>% 
+select(-data,-fitted, -index)  
+
+fitted_dth_data <- forecast_dth_model_data %>% 
+  filter(!(is.na(data))) %>% 
+  inner_join(daily_death_hb_timeseries_data, by = c("index")) %>% 
+  mutate(date = as.Date(date)) %>% 
+select(date, data, fitted) 
+
+```
+
+**Plotting the Vaccination series plus the forecast and 80 - 95% prediction intervals**
+
+```{r}
+
+annotation <- data.frame(
+   x = c(as.Date("13-06-2021","%d-%m-%Y"),as.Date("11-10-2021","%d-%m-%Y")),
+   y = c(30,40),
+   label = c("PAST", "FUTURE")
+)
+
+#Time series plots for the next 60 days according to best ARIMA models with 80%–95% CI.
+forecast_data_dth_plot <- fitted_dth_data %>% 
+  ggplot()+
+  geom_line(aes(x= date, y = data), color = "#5ab4ac")+
+  #geom_line(aes(x= date, y = fitted), colour = "red" )+
+  geom_line(aes(x= date, y =point_forecast), color ="blue", data = forecast_dth_data )+
+  geom_ribbon(aes(x = date, y = point_forecast, ymin = lo_80, ymax = hi_80), 
+              data = forecast_dth_data, alpha = 0.3, fill = "green")+
+  geom_ribbon(aes(x = date, y = point_forecast, ymin = lo_95, ymax = hi_95), 
+              data = forecast_dth_data, alpha = 0.1)+
+  geom_vline(aes(xintercept=as.numeric(max(date))),color="#f1a340", linetype="dashed",data = fitted_dth_data)+
+  ggtitle("Projection of new Deaths") +
+  xlab("Month") + 
+  ylab("Death reported")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  color_theme()+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  geom_text(data=annotation, 
+            aes( x=x, y=y, label=label),                  
+            color="blue", 
+            size=4 )
+   
+
+ggplotly(forecast_data_dth_plot )
+```

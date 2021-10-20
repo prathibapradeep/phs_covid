@@ -1,0 +1,412 @@
+---
+title: "PHS_COVID Vaccination Prediction Model Using ARIMA"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+### Data Preparation
+
+```{r}
+
+trend_vacc_hb <- daily_vacc_hb %>% 
+  filter(hb_name == "Scotland") %>% 
+  filter(sex =="Total") %>% 
+  filter(age_group == "All vaccinations") %>% 
+  filter(cumulative_number_vaccinated!=0) 
+
+```
+
+## **Analyse the trend on Vaccinations:**
+
+### ***Plot1(a): Trend on Vaccination***
+
+```{r}
+#Plot to visualize trend on vaccination.
+plot_vaccine <- trend_vacc_hb %>% 
+  ggplot()+
+  aes(x = date, y = number_vaccinated)+
+  geom_line(aes(color = dose))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("People Vaccinated") +
+  xlab("Year") +
+  ylab("No of Positive Cases") +
+  color_theme()+
+  scale_colour_manual(values = c("#f1a340", "#5ab4ac"))
+
+ggplotly(plot_vaccine)
+```
+
+### ***Plot1(b): Cumulative Total on Vaccination***
+
+```{r}
+# Identify the population
+dose_population <- daily_vacc_hb %>% 
+  filter(sex == "Total") %>% 
+  filter(date == max(date)) %>% 
+  filter(hb_name =="Scotland") %>% 
+  filter(age_group =="16 years and over") %>% 
+  select(population) %>% 
+  distinct()
+
+#Plot to visualise cumulative vaccination trend.  
+plot_vaccine_cumm <- trend_vacc_hb %>% 
+  ggplot()+
+  aes(x = date, y = cumulative_number_vaccinated)+
+  geom_line(aes(color = dose))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Cummulative Trend on Vaccination") +
+  xlab("Year") +
+  ylab("No of People Vaccinated") +
+  color_theme()+
+  scale_colour_manual(values = c("#f1a340", "#5ab4ac"))+
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6), 
+                     sec.axis = sec_axis(trans = ~./dose_population$population,
+                     name = "Percentage",
+                     labels = scales::label_percent(accuracy = 0.01)
+                    ))
+
+plotly::ggplotly(plot_vaccine_cumm)
+
+```
+
+### ***Plot1(c): Cumulative Total on Vaccination based on Age group***
+
+```{r}
+cumm_vac_age<- daily_vacc_hb %>% 
+  filter(sex == "Total") %>% 
+  filter(is.na(age_group_qf)) %>% 
+  filter(date == max(date)) %>% 
+  filter(hb_name =="Scotland") %>% 
+  filter(age_group !="All vaccinations") %>% 
+  mutate (cumulative_percent_coverage = ifelse(cumulative_percent_coverage >100, 100,
+                                               round(cumulative_percent_coverage,2))) %>% 
+  select(dose,age_group, cumulative_percent_coverage, population)
+  
+cumm_vac_age_plot <- cumm_vac_age %>% 
+  ggplot()+
+  aes(x = age_group, y = cumulative_percent_coverage)+
+  geom_col(aes(fill = dose), position = "dodge")+
+   # geom_text(aes(label=cumulative_percent_coverage, hjust = 0),
+   #           position=position_dodge(width=0.9),angle = 90)+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Percentage Coverage of Vaccination by age group") +
+  xlab("Age group") +
+  ylab("% of Coverage") +
+  color_theme()+
+  scale_fill_manual(values = c("#f1a340", "#5ab4ac"))
+
+ggplotly(cumm_vac_age_plot)
+
+#position=position_dodge(width=0.9), vjust=-0.25
+
+```
+
+# Forecast on Vaccination: ARIMA Model
+
+**Data Preparation**
+
+```{r}
+trend_vacc_hb <- trend_vacc_hb %>% 
+  filter (dose == "Dose 2") %>% 
+  select(date,cumulative_number_vaccinated)
+
+# Convert it to zoo type
+daily_vacc_hb_zoo <- zoo(trend_vacc_hb$cumulative_number_vaccinated, 
+           order.by=as.Date(trend_vacc_hb$date, format='%m/%d/%Y'))
+
+# Convert it into a time series
+daily_vacc_hb_timeseries <-timeSeries::as.timeSeries(daily_vacc_hb_zoo)
+
+```
+
+## Step 1 : Visualize the time series
+
+```{r}
+original_series<-
+  autoplot(daily_vacc_hb_timeseries, colour = '#5ab4ac')+
+  xlab("Month") + 
+  ylab("VACCINATED")+
+  #scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Original Series") +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()
+
+ggplotly(original_series)
+```
+
+## Step 2 : Identification of model : (Finding d:)
+
+Identify whether the time series is stationary / non stationary we can use ADF Augmented Dickey-Fuller test
+
+```{r}
+adf_test <- adf.test(daily_vacc_hb_timeseries)
+```
+
+The time series is not stationary since we have a high p-value.
+So we apply difference
+
+```{r}
+first_diff_ts<- diff(daily_vacc_hb_timeseries)
+adf_test1 <- adf.test(na.omit(first_diff_ts))
+second_diff_ts<- diff(first_diff_ts)
+adf_test2 <- adf.test(na.omit(second_diff_ts))
+
+adf_test1
+adf_test2
+```
+
+Create a dataframe to compare
+
+```{r}
+adf_data <- data.frame(Data = c("Original", "First-Ordered", "Second Ordered"),
+                       Dickey_Fuller = c(adf_test$statistic, adf_test1$statistic, adf_test2$statistic),
+                       p_value = c(adf_test$p.value,adf_test1$p.value,adf_test2$p.value))
+adf_data
+```
+
+Initially the p-value is high which indicates that the Time Series is not stationary.
+So we apply difference 2 times.
+After the second difference, the p-value \< significance level (0.05) So we can conclude that the difference data are stationary.
+So difference (d = 2)
+
+Other method to confirm
+
+```{r}
+ndiffs(daily_vacc_hb_timeseries)
+```
+
+Let's plot the First Order and Second Order Difference Series
+
+Order of first difference
+
+```{r}
+
+first_order<- autoplot(first_diff_ts, ts.colour = '#5ab4ac') +
+  xlab("Month") + 
+  ylab("VACCINATED")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("First-Order Difference") +
+  color_theme()
+
+ggplotly(first_order)
+```
+
+Order of Second difference
+
+```{r}
+
+second_order<- autoplot(second_diff_ts, ts.colour = '#5ab4ac') +
+  xlab("Month") + 
+  ylab("VACCINATED")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Second-Order Difference") +
+  color_theme()
+
+ggplotly(second_order)
+```
+
+## Step 3 Estimate the parameters (Finding p and q)
+
+For our model ARIMA (p,d,q), we found d = 2, the next step is to get the values of p and q, the order of AR and MA part.
+Plot ACF and PACF charts to identify q and p respectively.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+  acf1(first_diff_ts, col=2:7, lwd=4)
+  acf1(second_diff_ts, col=2:7, lwd=4)
+  acf1(first_diff_ts, pacf = TRUE, col=2:7, lwd=4)
+  acf1(second_diff_ts, pacf = TRUE, col=2:7, lwd=4)
+```
+
+The ACF and PACF plots of the differenced data show the following patterns:
+
+The ACF doesn't follow a sinusoidal pattern but its slowly geometric decay.
+Also there is a significant spike at lag 3 in the PACF, but none beyond lag 3.
+So the data may follow an AR(3) model
+
+The PACF is sinusoidal and decaying.
+Also there is a significant spike at lag 2 in the ACF, but none beyond lag 2 So the data may follow an MA(2) model
+
+So we propose three ARMA models for the differenced data: ARMA(p,q) ARMA(3,2), ARMA(3,0) and ARMA(0,2).
+
+That is, for the original time series, we propose three ARIMA models,ARIMA(p,d,q) ARIMA(3,1,2), ARIMA(3,1,0) and ARMA(3,1,2).
+
+## Step 4 Build the ARIMA model
+
+### Manual ARIMA:
+
+```{r}
+arima_fit1 = Arima(daily_vacc_hb_timeseries, order = c(3,1,2))
+arima_fit2 = Arima(daily_vacc_hb_timeseries, order = c(3,1,0))
+arima_fit3 = Arima(daily_vacc_hb_timeseries, order = c(3,1,2))
+arima_fit4 = Arima(daily_vacc_hb_timeseries, order = c(3,1,1))
+```
+
+```{r}
+summary(arima_fit1)
+summary(arima_fit2)
+summary(arima_fit3)
+summary(arima_fit4)
+```
+
+Forecast the Manual ARIMA model
+
+```{r}
+# Forecast the manual models
+
+future = forecast(arima_fit1, h = 30)
+future2 = forecast(arima_fit2, h = 30)
+future3 = forecast(arima_fit3, h = 30)
+future4 = forecast(arima_fit4, h = 30)
+
+#Plot the forecasted manual models
+
+par(mfrow = c(2,2))
+plot(future)
+plot(future2)
+plot(future3)
+plot(future4)
+```
+
+### **Automated ARIMA**
+
+```{r}
+auto_arima_fit_vacc <- auto.arima(daily_vacc_hb_timeseries,
+                  seasonal=FALSE,
+                  stepwise = FALSE,
+                  approximation = FALSE,
+                  trace = TRUE
+                  )
+summary(auto_arima_fit_vacc)
+```
+
+**Model Selection Criteria :**
+
+ARIMA models with minimum AIC, RMSE and MAPE criteria were chosen as the best models.
+Automated ARIMA confirms that the ARIMA(3, 2, 2) seems good based on AIC
+
+```{r}
+lmtest::coeftest(auto_arima_fit_vacc)
+```
+
+All the coefficients are statistically significant.
+
+## Step 5 Check for Diagnostics
+
+Let's plot the diagnostics with the results to make sure the normality and correlation assumptions for the model hold.
+If the residuals look like white noise, proceed with forecast and prediction, otherwise repeat the model building.
+
+```{r}
+res <- checkresiduals(auto_arima_fit_vacc, theme = color_theme())
+res
+```
+
+The ACF plot of the residuals from the ARIMA(3,2,2) model shows that almost auto correlationswith regular interval outlier.
+A portmanteau test returns a smaller p-value (almost close to Zero), also suggesting that the residuals are white noise.
+
+**Fitting the ARIMA model with the existing data**
+
+The residual errors seem fine with near zero mean and uniform variance.
+Let's plot the actuals against the fitted values
+
+```{r}
+#Convert the model to dataframe for plotting
+
+daily_vacc_hb_timeseries_data <- fortify(daily_vacc_hb_timeseries) %>% 
+  clean_names() %>% 
+  remove_rownames %>% 
+  rename (date = index,
+          vacc = data)%>% 
+  mutate(index = seq(1:nrow(daily_vacc_hb_timeseries)))
+  
+arima_fit_resid <- ts(daily_vacc_hb_timeseries) - resid(auto_arima_fit_vacc)
+
+arima_fit_data <- fortify(arima_fit_resid) %>% 
+  clean_names() %>% 
+  mutate(data = round(data,2))
+
+fit_existing_data <- daily_vacc_hb_timeseries_data %>% 
+  inner_join(arima_fit_data, by = c("index"))
+```
+
+```{r}
+#plotting the series along with the fitted values
+fit_existing_data %>% 
+  ggplot()+
+  aes(x=date, y = vacc)+
+  geom_line(color ="#5ab4ac")+
+  geom_line(aes(x= date, y = data), colour = "red" )+
+  xlab("Month") + 
+  ylab("Number of People vaccinated")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Fitting the ARIMA model with existing data") +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()
+```
+
+## Step 6 Forecast using the model
+
+**Data Preparation :**
+
+```{r}
+#Convert the model to dataframe for plotting
+forecast_model <- forecast(auto_arima_fit_vacc,level = c(80, 95), h = 60) 
+
+forecast_model_data <- fortify(forecast_model) %>% 
+  clean_names() %>% 
+  mutate(data = round(data,2),
+         fitted= round(fitted,2)) 
+
+forecast_start_date <- as.Date(max(daily_vacc_hb_timeseries_data$date)+1)
+forecast_end_date <- as.Date(forecast_start_date+59)
+
+forecast_data <- forecast_model_data %>% 
+  filter(!(is.na(point_forecast))) %>% 
+  mutate(date = seq(forecast_start_date,forecast_end_date, by =1)) %>% 
+select(-data,-fitted, -index)  
+
+fitted_data <- forecast_model_data %>% 
+  filter(!(is.na(data))) %>% 
+  inner_join(daily_vacc_hb_timeseries_data, by = c("index")) %>% 
+  mutate(date = as.Date(date)) %>% 
+select(date, data, fitted) 
+
+```
+
+**Plotting the Vaccination series plus the forecast and 95% prediction intervals**
+
+```{r}
+annotation <- data.frame(
+   x = c(as.Date("03-04-2021","%d-%m-%Y"),as.Date("31-10-2021","%d-%m-%Y")),
+   y = c(1000000,3000000),
+   label = c("PAST", "FUTURE")
+)
+
+#Time series plots for the next 60 days according to best ARIMA models with 80%–95% CI.
+fitted_data %>% 
+  ggplot()+
+  geom_line(aes(x= date, y = data))+
+  geom_line(aes(x= date, y = fitted), colour = "red" )+
+  geom_line(aes(x= date, y =point_forecast), data = forecast_data )+
+  geom_ribbon(aes(x = date, y = point_forecast, ymin = lo_80, ymax = hi_80), 
+              data = forecast_data, alpha = 0.3, fill = "green")+
+  geom_ribbon(aes(x = date, y = point_forecast, ymin = lo_95, ymax = hi_95), 
+              data = forecast_data, alpha = 0.1)+
+  ggtitle("Forecast") +
+  xlab("Month") + 
+  ylab("Number of People vaccinated")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  color_theme()+
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
+   geom_text(data=annotation, 
+             aes( x=x, y=y, label=label),                  
+            color="red", 
+            size=4 )+
+  geom_vline(xintercept =as.Date("08-10-2021","%d-%m-%Y"), linetype = 2)
+```

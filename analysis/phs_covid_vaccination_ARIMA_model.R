@@ -18,10 +18,10 @@ daily_vacc_hb_timeseries <-timeSeries::as.timeSeries(daily_vacc_hb_zoo)
 
 original_series<-autoplot(daily_vacc_hb_timeseries, colour = '#5ab4ac')+
   xlab("Month") + 
-  ylab("Number of People vaccinated")+
+  ylab("VACCINATED")+
   #scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("Trend on Vaccination") +
+  #ggtitle("Original Series") +
   scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
   color_theme()
 
@@ -49,7 +49,7 @@ first_order<- autoplot(first_diff_ts, ts.colour = '#5ab4ac') +
   ylab("VACCINATED")+
   # scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("First-Order Difference Series") +
+  #ggtitle("First-Order Difference") +
   color_theme()
 
 # Second Order Difference
@@ -58,7 +58,7 @@ second_order<- autoplot(second_diff_ts, ts.colour = '#5ab4ac') +
   ylab("VACCINATED")+
   # scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("Second-Order Difference Series") +
+  ggtitle("Second-Order Difference") +
   color_theme()
 
 # Build an automatic ARIMA Model
@@ -77,25 +77,25 @@ arima_fit4 = Arima(daily_vacc_hb_timeseries, order = c(3,2,2))
 
 arima_fit <- ts(daily_vacc_hb_timeseries) - resid(auto_arima_fit)
 
-# arima_fit_existing <- autoplot(ts(daily_vacc_hb_timeseries), colour = '#5ab4ac') +
-#   autolayer(auto_arima_fit) +
-#   xlab("Month") + 
-#   ylab("Number of People vaccinated")+
-#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-#   ggtitle("Fitting the ARIMA model with existing data") +
-#   scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
-#   color_theme()
+arima_fit_existing <- autoplot(ts(daily_vacc_hb_timeseries), colour = '#5ab4ac') +
+  autolayer(auto_arima_fit) +
+  xlab("Month") +
+  ylab("Number of People vaccinated")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  ggtitle("Fitting the ARIMA model with existing data") +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+
+  color_theme()
 
 #Plotting the Vaccination series plus the forecast and 95% prediction intervals
 
 #forecast automated model
-forecast_model <- forecast(auto_arima_fit,level = c(80, 95), h = 30) 
+forecast_model <- forecast(auto_arima_fit,level = c(80, 95), h = 60) 
 
 #forecast manual models
-future  = forecast(arima_fit1, level = c(80, 95), h = 30)
-future2 = forecast(arima_fit2, level = c(80, 95), h = 30)
-future3 = forecast(arima_fit3, level = c(80, 95), h = 30)
-future4 = forecast(arima_fit4, level = c(80, 95), h = 30)
+future  = forecast(arima_fit1, level = c(80, 95), h = 60)
+future2 = forecast(arima_fit2, level = c(80, 95), h = 60)
+future3 = forecast(arima_fit3, level = c(80, 95), h = 60)
+future4 = forecast(arima_fit4, level = c(80, 95), h = 60)
 
 
 # Text to print on the plot
@@ -110,7 +110,7 @@ vacc_prediction <- forecast_model %>%
   autoplot(colour ='#f1a340') +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
   ggtitle("Forecast for 1 month") +
-  xlab("Year") +
+  xlab("Time Series(Index)") +
   ylab("No of people vaccinated") +
   scale_y_continuous(labels = scales::comma)+
   scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))+

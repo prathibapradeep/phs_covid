@@ -1,3 +1,10 @@
+#-------------------------------------------------------------------------- 
+# Name :phs_covid_analysis.R
+# This script contains all the code for the exploratory analysis on PHS_COVID
+# This is a consolidated version for the presentation (slidy)
+# Created by Prathiba
+# Date : 14-Oct-2021
+#--------------------------------------------------------------------------
 
 #Load the library---------------------------------------------------------------
 library(here)
@@ -46,11 +53,12 @@ trend_positive_plot <- trend_positive_plot %>% add_lines(y = ~seven_day_roll_avg
                                                color = I("red")) 
 #add layout to the existing plot
 trend_positive_plot <- trend_positive_plot %>% layout(
-  title = list(text ="Trend on Positive Cases"),
+  #title = list(text ="Trend on Positive Cases"),
   xaxis = xaxis_list,
   yaxis = yaxis_list,
   legend = list(title=list(text='<b> Trend </b>'),
                 x = 0.1, y = 0.9))
+
 
 # ***Plot1(b): Total Positive Case by neighborhood (Based on Local Authority).***
 
@@ -78,7 +86,7 @@ map_data <- map_data %>%
   leaflet() %>%
   addPolygons(
     popup = ~ str_c("<b><h2>",name,  "</h2>", 
-                    "<h3>(01-Oct-2011 to 07-Oct-2021)</h3></b>", 
+                    "<h4>(01-Oct-2011 to 07-Oct-2021)</h4></b>", 
                     "<b>Number of Positive Cases over 7 days: </b>", seven_day_roll_avg,
                     " <br><b>7 day rate per 100,000 people: </b>", crude_rate7day_positive,
                     " <br><br><b>Total Population: </b>", total_population,
@@ -167,16 +175,16 @@ trend_vacc_hb <- daily_vacc_hb %>%
 
 ### ***Plot3(a): Trend on Vaccination(For all the data).***
 
-#Plot to visualize vaccination.
+#Plot to visualize daily vaccination.
 plot_vaccine <- trend_vacc_hb %>% 
   ggplot()+
   aes(x = date, y = number_vaccinated)+
   geom_line(aes(color = dose))+
   scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("Trend on Vaccination") +
+  #ggtitle("Trend on Vaccination") +
   xlab("Year") +
-  ylab("No of Positive Cases") +
+  ylab("No of People Vaccinated") +
   color_theme()+
   scale_colour_manual(values = c("#f1a340", "#5ab4ac"))
 
@@ -189,7 +197,7 @@ plot_vaccine_cumm <- trend_vacc_hb %>%
   geom_line(aes(color = dose))+
   scale_x_date(breaks = "1 month", date_labels = "%b - %y" )+
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
-  ggtitle("Cummulative Trend on Vaccination") +
+  #ggtitle("Cummulative Trend on Vaccination") +
   xlab("Year") +
   ylab("No of People Vaccinated") +
   color_theme()+
@@ -197,4 +205,29 @@ plot_vaccine_cumm <- trend_vacc_hb %>%
   scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6))
 
 trend_vaccine_cumm <- ggplotly(plot_vaccine_cumm)
+
+#Plot to visualize vaccination based on age.
+
+cumm_vac_age<- daily_vacc_hb %>% 
+  filter(sex == "Total") %>% 
+  filter(is.na(age_group_qf)) %>% 
+  filter(date == max(date)) %>% 
+  filter(hb_name =="Scotland") %>% 
+  filter(age_group !="All vaccinations") %>% 
+  mutate (cumulative_percent_coverage = ifelse(cumulative_percent_coverage >100, 100,
+                                               round(cumulative_percent_coverage,2))) %>% 
+  select(dose,age_group, cumulative_percent_coverage, population)
+
+cumm_vac_age_plot <- cumm_vac_age %>% 
+  ggplot()+
+  aes(x = age_group, y = cumulative_percent_coverage)+
+  geom_col(aes(fill = dose), position = "dodge")+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))+
+  #ggtitle("Percentage Coverage of Vaccination by age group") +
+  xlab("Age group") +
+  ylab("% of Coverage") +
+  color_theme()+
+  scale_fill_manual(values = c("#f1a340", "#5ab4ac"))
+
+trend_vaccine_cumm_age <-ggplotly(cumm_vac_age_plot)
 
