@@ -1,0 +1,30 @@
+@import url(https://fonts.googleapis.com/css2?family=Corben&display=swap);
+@import url(https://fonts.googleapis.com/css2?family=Dosis&display=swap);
+
+
+
+body {    
+	font-family: Arial;	
+	color: black;		
+	background-image: url('background_slide.jpg');
+	background-repeat: no-repeat;
+	background-attachment: fixed;	
+	background-size: 100% 100%;
+	}
+h1 {
+    font-family: Corben;
+	font-weight: 300;
+	color: #451cad;
+}
+
+h3 {
+    font-family: Dosis;
+	font-weight: 300;
+	color: #2cb31b;
+}
+
+h4 {
+    font-family: Arial;
+	font-weight: 300;
+	color: blue;
+}

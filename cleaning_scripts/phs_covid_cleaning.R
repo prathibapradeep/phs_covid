@@ -27,22 +27,26 @@ for (f in files) {
 #Prepare the data for daily positive, death and hospitalizations
 trend_hb_daily <- trend_hb_20211008 %>% 
   clean_names() %>% 
-  mutate(date = as_date(ymd(date))) 
+  mutate(date = as_date(ymd(date))) %>% 
+  filter(date <"2021-10-01")
 
 #Prepare the data for daily positive, death and hospitalizations
 trend_la_daily <- trend_ca_20211008 %>% 
   clean_names() %>% 
-  mutate(date = as_date(ymd(date)))
+  mutate(date = as_date(ymd(date))) %>% 
+  filter(date <"2021-10-01")
 
 #Prepare the data for population using seven day trend data
 trend_seven_day <- trend_iz_20211008 %>% 
   clean_names() %>% 
-  mutate(date = as_date(ymd(date)))
+  mutate(date = as_date(ymd(date))) %>% 
+  filter(date <"2021-10-01")
 
 #Prepare the data for vaccinations
 daily_vacc_hb <- daily_vacc_hb_20211009 %>% 
   clean_names() %>% 
-  mutate(date = as_date(ymd(date)))
+  mutate(date = as_date(ymd(date))) %>% 
+  filter(date <"2021-10-01")
 
 #read the shape file and clean column names
 
